@@ -5,15 +5,19 @@ define(function() {
         if (false === p_params)return;
 
         var params = {
+            angularjs: false,
             viewLocalCache: false,
             precompileTemplates: true,
-            dataControllerUrlKey: 'controller_url',
-            dataViewUrlKey: 'view_url',
+            mvcObjectKey: 'mvc',                // null 表示使用整个对象
+            dataObjectKey: 'data',                // null 表示使用整个对象
+            dataControllerUrlKey: 'controller',
+            dataViewUrlKey: 'view',
             dataViewContentKey: 'view',
             dataTemplateIdKey: 'template_id',
             dataIgnoreViewCacheKey: 'cache_ignore',
             viewCachePrefix: 'f7mvc_view_',
-            controllerPath: '/assets/controllers/',
+            mvcPath: '/assets/mvc/',
+            controllerPath: '/assets/contro1llers/',
             viewPath: '/assets/views/',
             errorMsgView: '页面执行错误，请联系管理员',
             errorMsgLoadView: '加载视图失败，请重试',
@@ -46,6 +50,7 @@ define(function() {
                 e.preventDefault();
 
                 var myView = app.getCurrentView();
+                console.log(myView);
 
                 myView.router.load({
                     content : Template7.templates[templateId]($$(self).dataset())
@@ -70,11 +75,10 @@ define(function() {
                     },
                     error: function (xhr) {
                         app.alert(params.errorMsgLoadView, function () {
-                            mainView.router.back();
+                            app.getCurrentView().router.back();
                         });
                         console.error(xhr);
 
-                        get_count++;
                         run();
                     }
                 });
@@ -98,21 +102,33 @@ define(function() {
                     return content;
                 }
 
-                currentData[url] = data;
+                // 当前对象数据
+                var templateData = currentData[url] = params.dataObjectKey ? (data[params.dataObjectKey] ? data[params.dataObjectKey] : {}) : {};
 
-                var get_count = 0;
+                var loadCount = 0;
                 var controllerUrl = data[params.dataControllerUrlKey];          //控制器URL
                 var viewUrl = data[params.dataViewUrlKey];                      //视图URL
                 var viewContent = data[params.dataViewContentKey];              //视图内容
                 var viewIgnoreCache = data[params.dataIgnoreViewCacheKey];      //是否忽略缓存
                 var templateId = data[params.dataTemplateIdKey];                //模板ID
 
+                if (params.mvcObjectKey && typeof data[params.mvcObjectKey] === 'object')
+                {
+                    controllerUrl = data[params.mvcObjectKey][params.dataControllerUrlKey] + '.js';
+                    viewUrl = data[params.mvcObjectKey][params.dataViewUrlKey] + '.html';
+                }
+                else
+                {
+                    myApp.alert('获取参数失败');
+                    return;
+                }
+
                 // 当资源都加载完毕会除非next方法
                 var run = function () {
                     var v7page = app.params.template7Pages;
 
                     if (controllerUrl && viewUrl) {
-                        if (get_count === 2) {
+                        if (loadCount === 2) {
                             app.params.template7Pages = false;      // 当设置 template7Page = true 时会有bug，这样可以解决这个问题
                             next(content);
                             app.params.template7Page = v7page;
@@ -138,11 +154,6 @@ define(function() {
                     // 调用模板处理
                     content = Template7.templates[templateId](data);
 
-                    if (viewUrl) {
-                        data[dataViewUrlKey] = null;
-                        delete data[dataViewUrlKey];
-                    }
-
                     if (!controllerUrl) {
                         // 如果也没有JS控制器，则直接返回处理后的内容
                         next(content);
@@ -158,7 +169,7 @@ define(function() {
 
                     content = viewContent;
                     var t7 = Template7.compile(viewContent);
-                    content = t7(data);
+                    content = t7(templateData);
 
                     if (!controllerUrl) {
                         // 如果也没有JS控制器，则直接返回处理后的内容
@@ -173,21 +184,21 @@ define(function() {
                     if (!viewCache) {
                         $$.ajax({
                             method: 'get',
-                            url: params.viewPath + viewUrl,
+                            url: params.mvcPath + viewUrl,
                             success: function (rs, status, xhr) {
                                 try {
                                     if (params.viewLocalCache)localStorage.setItem(params.viewCachePrefix + viewUrl, rs);
 
                                     if (params.precompileTemplates) {
                                         var template = Template7.compile(rs);
-                                        content = template(data);
+                                        content = template(templateData);
                                     }
                                     else
                                     {
                                         content = rs;
                                     }
 
-                                    get_count++;
+                                    loadCount++;
                                     run();
                                 }
                                 catch (e) {
@@ -197,11 +208,11 @@ define(function() {
                             },
                             error: function (xhr) {
                                 app.alert(params.errorMsgLoadView, function () {
-                                    mainView.router.back();
+                                    app.getCurrentView().router.back();
                                 });
                                 console.error(xhr);
 
-                                get_count++;
+                                loadCount++;
                                 run();
                             }
                         });
@@ -217,17 +228,17 @@ define(function() {
                             content = viewCache;
                         }
                         viewCache = null;
-                        get_count++;
+                        loadCount++;
                         run();
                     }
                 }
 
                 if (controllerUrl) {
-                    require([params.controllerPath + controllerUrl], function (ctl) {
+                    require([params.mvcPath + controllerUrl], function (ctl) {
                         if (typeof ctl === 'function') {
                             pageInitCallback[url] = ctl;
                         }
-                        get_count++;
+                        loadCount++;
                         run();
                     }, function (err) {
                         var failedId = err.requireModules && err.requireModules[0];
@@ -236,7 +247,7 @@ define(function() {
                         app.alert(params.errorMsgLoadJs);
                         console.error(err);
 
-                        get_count++;
+                        loadCount++;
                         run();
                     });
                 }
